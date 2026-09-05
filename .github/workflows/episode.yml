@@ -1,0 +1,51 @@
+name: Build daily episode
+
+on:
+  schedule:
+    # 02:30 UTC = 04:30 (Sommerzeit) / 03:30 (Winterzeit) in Europe/Berlin.
+    # Damit ist die Folge so gut wie sicher vor 5:00 Uhr lokal fertig.
+    - cron: "30 2 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update -y && sudo apt-get install -y ffmpeg
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write today's script (Claude + web search)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/write_script.py
+
+      - name: Build episode audio (Google Cloud TTS)
+        env:
+          GOOGLE_TTS_API_KEY: ${{ secrets.GOOGLE_TTS_API_KEY }}
+        run: python scripts/build_episode.py
+
+      - name: Commit and push generated episode
+        run: |
+          git config user.name "podcast-bot"
+          git config user.email "podcast-bot@users.noreply.github.com"
+          git add docs content
+          if git diff --cached --quiet; then
+            echo "Keine Aenderungen."
+          else
+            git commit -m "Neue Folge: $(date -u +%Y-%m-%d)"
+            git push
+          fi
