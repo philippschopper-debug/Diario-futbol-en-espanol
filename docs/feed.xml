@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Diario Fútbol en Español</title>
+    <link>https://philippschopper-debug.github.io/Diario-futbol-en-espanol/</link>
+    <language>es-es</language>
+    <description>Tägliche, kurze Zusammenfassung der spanischen Fußballliga (La Liga) auf Spanisch - für Lernende mit gutem Grundwortschatz. Erstellt automatisch von Claude.</description>
+    <itunes:author>Claude</itunes:author>
+    <itunes:image href="https://philippschopper-debug.github.io/Diario-futbol-en-espanol/cover.png" />
+    <itunes:category text="Sports" />
+    <itunes:explicit>false</itunes:explicit>
+    <image>
+      <url>https://philippschopper-debug.github.io/Diario-futbol-en-espanol/cover.png</url>
+      <title>Diario Fútbol en Español</title>
+      <link>https://philippschopper-debug.github.io/Diario-futbol-en-espanol/</link>
+    </image>
+    <item>
+      <title>Sorpresa en La Cartuja: el Betis tumba al Real Madrid de Mourinho</title>
+      <description>Repasamos la histórica derrota del Real Madrid ante el Betis, el liderato compartido entre Barça y Madrid, los partidos de este fin de semana y el debut europeo de los grandes en la Champions League.</description>
+      <pubDate>Sat, 05 Sep 2026 06:00:00 +0000</pubDate>
+      <guid isPermaLink="false">ep-2026-09-05.mp3</guid>
+      <enclosure url="https://philippschopper-debug.github.io/Diario-futbol-en-espanol/episodes/ep-2026-09-05.mp3" length="5517733" type="audio/mpeg" />
+      <itunes:duration>00:07:39</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+    </item>
+  </channel>
+</rss>
