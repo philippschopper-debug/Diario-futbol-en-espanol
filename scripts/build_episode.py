@@ -35,13 +35,8 @@ MAX_EPISODES = 21
 API_KEY = os.environ.get("GOOGLE_TTS_API_KEY")
 TTS_BASE = "https://texttospeech.googleapis.com/v1"
 
-# In dieser Reihenfolge wird nach einer verfuegbaren es-ES Stimme gesucht
-# (bevorzugt Neural2, dann Wavenet, dann irgendeine es-ES Stimme).
-PREFERRED_VOICES = [
-    "es-ES-Neural2-A", "es-ES-Neural2-B", "es-ES-Neural2-C",
-    "es-ES-Neural2-D", "es-ES-Neural2-E", "es-ES-Neural2-F",
-    "es-ES-Wavenet-B", "es-ES-Wavenet-C", "es-ES-Wavenet-D",
-]
+# Bevorzugte Stimm-Qualitaetsstufe, in dieser Reihenfolge.
+TIER_PRIORITY = ["Neural2", "Wavenet", "Standard"]
 
 PODCAST_TITLE = "Diario Fútbol en Español"
 PODCAST_DESCRIPTION = (
@@ -58,24 +53,30 @@ def log(*args):
     print(*args, file=sys.stderr)
 
 
+def _tier_rank(name):
+    for i, tier in enumerate(TIER_PRIORITY):
+        if tier in name:
+            return i
+    return len(TIER_PRIORITY)
+
+
 def pick_voice():
+    """Waehlt eine maennliche es-ES Stimme, beste verfuegbare Qualitaetsstufe."""
     resp = requests.get(f"{TTS_BASE}/voices", params={"languageCode": "es-ES", "key": API_KEY}, timeout=30)
     resp.raise_for_status()
-    voices = {v["name"] for v in resp.json().get("voices", [])}
-    for candidate in PREFERRED_VOICES:
-        if candidate in voices:
-            log(f"Stimme gewaehlt: {candidate}")
-            return candidate
-    # Fallback: irgendeine es-ES Stimme, bevorzugt mit "Wavenet"/"Neural2" im Namen
-    for candidate in sorted(voices):
-        if "Wavenet" in candidate or "Neural2" in candidate:
-            log(f"Fallback-Stimme gewaehlt: {candidate}")
-            return candidate
-    if voices:
-        candidate = sorted(voices)[0]
-        log(f"Letzter Fallback: {candidate}")
-        return candidate
-    raise RuntimeError("Keine es-ES Stimme gefunden - API-Key/Region pruefen.")
+    voices = resp.json().get("voices", [])
+    if not voices:
+        raise RuntimeError("Keine es-ES Stimme gefunden - API-Key/Region pruefen.")
+
+    male = [v for v in voices if v.get("ssmlGender") == "MALE"]
+    pool = male if male else voices
+    if not male:
+        log("Warnung: keine maennliche es-ES Stimme gefunden, nehme verfuegbare Stimme.")
+
+    pool.sort(key=lambda v: (_tier_rank(v["name"]), v["name"]))
+    chosen = pool[0]["name"]
+    log(f"Stimme gewaehlt: {chosen} (gender={pool[0].get('ssmlGender')})")
+    return chosen
 
 
 def chunk_text(text, max_bytes=4500):
@@ -155,10 +156,14 @@ def prune_episodes(episodes):
         return episodes
     keep, drop = episodes[:MAX_EPISODES], episodes[MAX_EPISODES:]
     for ep in drop:
-        f = EPISODES_DIR / ep["filename"]
-        if f.exists():
-            f.unlink()
-            log(f"Alte Folge geloescht: {ep['filename']}")
+        for key in ("filename", "transcript_filename"):
+            fname = ep.get(key)
+            if not fname:
+                continue
+            f = EPISODES_DIR / fname
+            if f.exists():
+                f.unlink()
+                log(f"Alte Datei geloescht: {fname}")
     return keep
 
 
@@ -176,18 +181,34 @@ def build_feed(episodes, base_url):
         m, s = divmod(rem, 60)
         duration_str = f"{h:02d}:{m:02d}:{s:02d}"
         enclosure_url = f"{base_url}/episodes/{ep['filename']}"
+        transcript_block = ""
+        full_text_block = ""
+        transcript_filename = ep.get("transcript_filename")
+        if transcript_filename:
+            transcript_url = f"{base_url}/episodes/{transcript_filename}"
+            transcript_block = (
+                f'\n      <podcast:transcript url="{transcript_url}" '
+                f'type="text/plain" language="es-ES" />'
+            )
+            full_text = (EPISODES_DIR / transcript_filename).read_text(encoding="utf-8")
+            # Zeilenumbrueche als <br/> fuer lesbare Show-Notes in Podcast-Apps.
+            full_text_html = escape_xml(full_text).replace("\n", "<br/>")
+            full_text_block = f"\n      <content:encoded><![CDATA[{full_text_html}]]></content:encoded>"
         items_xml.append(f"""    <item>
       <title>{escape_xml(ep['title'])}</title>
-      <description>{escape_xml(ep['description'])}</description>
+      <description>{escape_xml(ep['description'])}</description>{full_text_block}
       <pubDate>{rfc2822(ep['date'])}</pubDate>
       <guid isPermaLink="false">{ep['filename']}</guid>
       <enclosure url="{enclosure_url}" length="{ep['filesize']}" type="audio/mpeg" />
       <itunes:duration>{duration_str}</itunes:duration>
-      <itunes:explicit>false</itunes:explicit>
+      <itunes:explicit>false</itunes:explicit>{transcript_block}
     </item>""")
 
     feed = f"""<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+<rss version="2.0"
+     xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:podcast="https://podcastindex.org/namespace/1.0">
   <channel>
     <title>{escape_xml(PODCAST_TITLE)}</title>
     <link>{base_url}/</link>
@@ -249,6 +270,9 @@ def main():
         out_path = EPISODES_DIR / filename
         episode_audio.export(out_path, format="mp3", bitrate="96k")
 
+    transcript_filename = f"ep-{date_str}.txt"
+    (EPISODES_DIR / transcript_filename).write_text(script_text, encoding="utf-8")
+
     duration_seconds = len(episode_audio) / 1000.0
     filesize = out_path.stat().st_size
 
@@ -259,6 +283,7 @@ def main():
         "title": meta["title"],
         "description": meta.get("description", ""),
         "filename": filename,
+        "transcript_filename": transcript_filename,
         "duration_seconds": duration_seconds,
         "filesize": filesize,
     })
