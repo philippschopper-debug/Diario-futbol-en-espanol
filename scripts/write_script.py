@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Recherchiert aktuelle spanische Fussball-News (v.a. LaLiga) per Claude +
-Web-Suche und schreibt daraus content/latest.txt + content/latest.json.
+Recherchiert aktuelle spanische Fussball-News (LaLiga, Copa del Rey,
+Champions/Europa League mit spanischen Vereinen, Selección, Transfers) per
+Claude + Web-Suche und schreibt daraus content/latest.txt + content/latest.json.
 
 Benoetigt die Umgebungsvariable ANTHROPIC_API_KEY.
 """
@@ -17,6 +18,7 @@ import requests
 
 ROOT = Path(__file__).resolve().parent.parent
 CONTENT_DIR = ROOT / "content"
+EPISODES_JSON = ROOT / "docs" / "episodes.json"
 
 API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
@@ -32,25 +34,36 @@ Du schreibst das taegliche Skript fuer einen privaten spanischsprachigen
 Podcast namens "Diario Futbol en Espanol". Der Hoerer ist ein
 deutschsprachiger Spanischlernender mit gutem Grundwortschatz (Niveau B1-B2),
 der frueher den (inzwischen eingestellten) Podcast "Marca Daily" gehoert hat:
-ca. 10 Minuten Sprechzeit, Fokus auf spanischen Fussball (v.a. LaLiga),
-Sprechtempo/Wortschatz moderat und gut verstaendlich, keine sehr
-umgangssprachlichen oder extrem seltenen Woerter, klare kurze bis
-mittellange Saetze, aber trotzdem natuerliches, authentisches Spanisch (wie
-ein echter Sportjournalist, nicht wie ein Lehrbuch).
+ca. 10 Minuten Sprechzeit, Fokus auf spanischen Fussball, Sprechtempo/
+Wortschatz moderat und gut verstaendlich, keine sehr umgangssprachlichen
+oder extrem seltenen Woerter, klare kurze bis mittellange Saetze, aber
+trotzdem natuerliches, authentisches Spanisch (wie ein echter
+Sportjournalist, nicht wie ein Lehrbuch).
 
-Nutze die Websuche, um echte, aktuelle Informationen zu finden (letzte
-Spieltag-Ergebnisse, Tabellenstand, bevorstehende Spiele, wichtige
-Transfers/News). Erfinde keine Fakten. Wenn gerade keine LaLiga-Spiele
-laufen (Laenderspielpause, Sommerpause etc.), weiche auf andere aktuelle
-spanische Fussball-Themen aus (Champions League mit spanischen Teams,
-spanische Nationalmannschaft, wichtige Transfers, etc.).
+WICHTIG - Aktualitaet: Das ist ein TAEGLICHER Podcast, keine wiederholte
+Wochenend-Zusammenfassung. Nutze die Websuche gezielt mit dem heutigen bzw.
+gestrigen Datum (nicht nur "LaLiga jornada X"), um herauszufinden, was
+WIRKLICH in den letzten 1-2 Tagen passiert ist. Das muss nicht LaLiga sein -
+je nach Spielplan kann das genauso gut sein: Champions League oder Europa
+League mit spanischen Vereinen, Copa del Rey, ein Spiel oder eine Nominierung
+der spanischen Nationalmannschaft, ein wichtiger Transfer, eine
+Trainer-Entlassung, eine Verletzung eines Topspielers, eine Pressekonferenz
+mit relevanten Aussagen, etc. Wenn seit dem letzten LaLiga-Spieltag schon
+mehrere Tage vergangen sind und inzwischen anderes passiert ist (z.B.
+Champions-League-Spiele diese Woche), berichte darueber statt nochmal ueber
+den letzten Spieltag - das Publikum hat den schon in einer frueheren Folge
+gehoert. Erfinde keine Fakten - nutze nur, was du in der Websuche findest.
+
+Vermeide es, dieselben Themen wie in den letzten Folgen (siehe unten, falls
+vorhanden) einfach zu wiederholen, ausser es gibt eine echte neue
+Entwicklung dazu.
 
 Struktur wie beim Vorbild "Marca Daily": kurze Begruessung, dann 2-4
-Nachrichten/Themen mit echten Details (Ergebnisse, Torschuetzen, Tabelle),
-dann ein Ausblick auf die kommenden Tage, kurzer Abschluss. Ca. 1300-1500
-Woerter Fließtext (das ergibt bei normalem Sprechtempo ca. 10 Minuten).
-Reiner Fliesstext zum Vorlesen - keine Ueberschriften, keine Aufzaehlungen,
-keine Emojis, keine Regieanweisungen.
+Nachrichten/Themen mit echten Details (Ergebnisse, Torschuetzen, Tabelle,
+Zitate), dann ein Ausblick auf die kommenden Tage, kurzer Abschluss. Ca.
+1300-1500 Woerter Fließtext (das ergibt bei normalem Sprechtempo ca. 10
+Minuten). Reiner Fliesstext zum Vorlesen - keine Ueberschriften, keine
+Aufzaehlungen, keine Emojis, keine Regieanweisungen.
 
 Antworte NUR mit einem einzigen JSON-Objekt, exakt in diesem Format, ohne
 Markdown-Codeblock, ohne weiteren Text davor oder danach:
@@ -74,6 +87,16 @@ def parse_json_response(raw_text):
     return json.loads(text)
 
 
+def load_recent_episode_summaries(limit=3):
+    if not EPISODES_JSON.exists():
+        return []
+    try:
+        episodes = json.loads(EPISODES_JSON.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    return episodes[:limit]
+
+
 def main():
     if not API_KEY:
         raise SystemExit("ANTHROPIC_API_KEY ist nicht gesetzt.")
@@ -82,10 +105,28 @@ def main():
     weekday_es = [
         "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"
     ][today.weekday()]
+
+    recent = load_recent_episode_summaries()
+    if recent:
+        recap_lines = "\n".join(
+            f"- {ep['date']}: {ep['title']} - {ep.get('description', '')}"
+            for ep in recent
+        )
+        recap_block = (
+            "\n\nDiese Themen wurden in den letzten Folgen bereits behandelt "
+            "(nicht einfach wiederholen, nur bei echten neuen Entwicklungen "
+            f"erneut aufgreifen):\n{recap_lines}"
+        )
+    else:
+        recap_block = ""
+
     user_prompt = (
         f"Heute ist {today.isoformat()} ({weekday_es}). "
-        "Recherchiere die aktuellen spanischen Fussball-News (LaLiga zuerst) "
-        "und schreibe die heutige Folge gemaess Systemanweisung."
+        "Recherchiere die aktuellsten spanischen Fussball-News der letzten "
+        "1-2 Tage (nicht zwingend LaLiga - schau auch nach Champions League/"
+        "Europa League mit spanischen Vereinen, Copa del Rey, Selección und "
+        "wichtigen Transfers) und schreibe die heutige Folge gemaess "
+        f"Systemanweisung.{recap_block}"
     )
 
     body = {
@@ -97,7 +138,7 @@ def main():
             {
                 "type": "web_search_20250305",
                 "name": "web_search",
-                "max_uses": 5,
+                "max_uses": 6,
             }
         ],
     }
