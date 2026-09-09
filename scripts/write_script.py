@@ -84,7 +84,10 @@ def parse_json_response(raw_text):
     # Falls Claude trotz Anweisung einen Codeblock verwendet hat, entfernen.
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
-    return json.loads(text)
+    # strict=False: erlaubt rohe Steuerzeichen (z.B. echte Zeilenumbrueche)
+    # innerhalb von JSON-Strings, die Claude bei langen Antworten gelegentlich
+    # statt korrekt maskierter "\n" einbaut.
+    return json.loads(text, strict=False)
 
 
 def load_recent_episode_summaries(limit=3):
